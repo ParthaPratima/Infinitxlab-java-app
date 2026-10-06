@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.infinitxlab.webapp</groupId>
+    <artifactId>infinitx-lab</artifactId>
+    <version>1.1-SNAPSHOT</version>
+    <packaging>war</packaging>
+
+    <name>infinitx-lab</name>
+    <url>http://www.example.com</url>
+
+
+    <!-- ===================================================== -->
+    <!-- Java Configuration                                    -->
+    <!-- ===================================================== -->
+
+    <properties>
+
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    </properties>
+
+
+    <!-- ===================================================== -->
+    <!-- Dependencies                                          -->
+    <!-- ===================================================== -->
+
+    <dependencies>
+
+
+        <!-- ================================================= -->
+        <!-- Servlet API                                       -->
+        <!-- Tomcat 9 uses javax.servlet                       -->
+        <!-- ================================================= -->
+
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+            <scope>provided</scope>
+        </dependency>
+
+
+        <!-- ================================================= -->
+        <!-- MySQL JDBC Driver                                 -->
+        <!-- ================================================= -->
+
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>8.4.0</version>
+        </dependency>
+
+
+        <!-- ================================================= -->
+        <!-- Protobuf Security Override                        -->
+        <!--                                                   -->
+        <!-- mysql-connector-j:8.4.0 brings protobuf-java      -->
+        <!-- 3.25.1 transitively.                              -->
+        <!--                                                   -->
+        <!-- Trivy detected CVE-2024-7254 (HIGH).              -->
+        <!-- Override it with the patched 3.25.5 version.      -->
+        <!-- ================================================= -->
+
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>3.25.5</version>
+        </dependency>
+
+
+        <!-- ================================================= -->
+        <!-- Jakarta Mail                                      -->
+        <!-- Used by SendOTPServlet.java                       -->
+        <!-- ================================================= -->
+
+        <dependency>
+            <groupId>org.eclipse.angus</groupId>
+            <artifactId>jakarta.mail</artifactId>
+            <version>2.0.3</version>
+        </dependency>
+
+
+        <!-- ================================================= -->
+        <!-- Jakarta Activation                                -->
+        <!-- Required by Jakarta Mail                          -->
+        <!-- ================================================= -->
+
+        <dependency>
+            <groupId>org.eclipse.angus</groupId>
+            <artifactId>angus-activation</artifactId>
+            <version>2.0.2</version>
+        </dependency>
+
+
+        <!-- ================================================= -->
+        <!-- JUnit                                             -->
+        <!-- Used for Jenkins CI unit testing                  -->
+        <!-- ================================================= -->
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.11.0</version>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+
+    <!-- ===================================================== -->
+    <!-- Build Configuration                                   -->
+    <!-- ===================================================== -->
+
+    <build>
+
+        <!-- Creates target/infinitx-lab.war -->
+        <finalName>infinitx-lab</finalName>
+
+
+        <plugins>
+
+
+            <!-- ============================================= -->
+            <!-- Java Compiler Plugin                          -->
+            <!-- ============================================= -->
+
+            <plugin>
+
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+
+            </plugin>
+
+
+            <!-- ============================================= -->
+            <!-- WAR Plugin                                    -->
+            <!-- ============================================= -->
+
+            <plugin>
+
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>3.4.0</version>
+
+                <configuration>
+                    <failOnMissingWebXml>false</failOnMissingWebXml>
+                </configuration>
+
+            </plugin>
+
+
+            <!-- ============================================= -->
+            <!-- Surefire                                      -->
+            <!-- Runs JUnit tests                              -->
+            <!-- ============================================= -->
+
+            <plugin>
+
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.0</version>
+
+            </plugin>
+
+        </plugins>
+
+    </build>
+
+</project>

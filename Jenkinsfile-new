@@ -1,0 +1,275 @@
+pipeline {
+
+    agent any
+
+    environment {
+
+        APP_NAME = 'infinitxlab-java-app'
+
+        DOCKERHUB_REPO =
+            'soumyajitrout/infinitxlab-java-app'
+
+        IMAGE_TAG =
+            "${BUILD_NUMBER}"
+
+        K8S_DEPLOYMENT_FILE =
+            'k8s/deployment.yml'
+
+        GIT_REPO =
+            'github.com/Soumyajit-Rout/infinitxlab-java-app.git'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+
+        stage('Maven Test') {
+            steps {
+
+                sh '''
+                    mvn clean test
+                '''
+            }
+        }
+
+
+        stage('SonarQube Analysis') {
+            steps {
+
+                withSonarQubeEnv('SonarQube') {
+
+                    sh '''
+                        mvn org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \
+                          -Dsonar.projectKey=infinitx-lab
+                    '''
+                }
+            }
+        }
+
+
+        /*
+        stage('Quality Gate') {
+            steps {
+
+                timeout(
+                    time: 10,
+                    unit: 'MINUTES'
+                ) {
+
+                    waitForQualityGate(
+                        abortPipeline: true
+                    )
+                }
+            }
+        }
+        */
+
+
+        stage('Maven Package') {
+            steps {
+
+                sh '''
+                    mvn clean package
+                '''
+            }
+        }
+
+
+        stage('Verify WAR') {
+            steps {
+
+                sh '''
+                    echo "Checking WAR file..."
+
+                    ls -lh target/
+
+                    test -f target/infinitx-lab.war
+                '''
+            }
+        }
+
+
+        stage('Docker Build') {
+            steps {
+
+                sh '''
+                    echo "Building Docker image..."
+
+                    docker build \
+                      -t ${DOCKERHUB_REPO}:${IMAGE_TAG} \
+                      .
+                '''
+            }
+        }
+
+
+        stage('Trivy Scan') {
+            steps {
+
+                sh '''
+                    echo "Scanning Docker image with Trivy..."
+
+                    trivy image \
+                      --severity HIGH,CRITICAL \
+                      --exit-code 1 \
+                      --ignore-unfixed \
+                      ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                '''
+            }
+        }
+
+
+        stage('Docker Hub Login') {
+            steps {
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_TOKEN'
+                    )
+                ]) {
+
+                    sh '''
+                        echo "$DOCKER_TOKEN" | \
+                        docker login \
+                          -u "$DOCKER_USERNAME" \
+                          --password-stdin
+                    '''
+                }
+            }
+        }
+
+
+        stage('Docker Push') {
+            steps {
+
+                sh '''
+                    echo "Pushing Docker image..."
+
+                    docker push \
+                      ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                '''
+            }
+        }
+
+
+        stage('Tag Latest') {
+            steps {
+
+                sh '''
+                    echo "Creating latest tag..."
+
+                    docker tag \
+                      ${DOCKERHUB_REPO}:${IMAGE_TAG} \
+                      ${DOCKERHUB_REPO}:latest
+
+                    echo "Pushing latest tag..."
+
+                    docker push \
+                      ${DOCKERHUB_REPO}:latest
+                '''
+            }
+        }
+
+
+        stage('Update Kubernetes Manifest') {
+            steps {
+
+                sh '''
+                    echo "Updating Kubernetes deployment image..."
+
+                    sed -i \
+                      "s#image: ${DOCKERHUB_REPO}:.*#image: ${DOCKERHUB_REPO}:${IMAGE_TAG}#" \
+                      ${K8S_DEPLOYMENT_FILE}
+
+                    echo "Updated image line:"
+
+                    grep "image:" \
+                      ${K8S_DEPLOYMENT_FILE}
+                '''
+            }
+        }
+
+
+        stage('Commit Kubernetes Manifest') {
+            steps {
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'git-token',
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_TOKEN'
+                    )
+                ]) {
+
+                    sh '''
+                        echo "Preparing Git commit..."
+
+                        git config user.name "Jenkins CI"
+                        git config user.email "jenkins@infinitxlab.local"
+
+                        git add ${K8S_DEPLOYMENT_FILE}
+
+                        if git diff --cached --quiet; then
+
+                            echo "No Kubernetes manifest changes to commit."
+
+                        else
+
+                            git commit \
+                              -m "Update image to ${DOCKERHUB_REPO}:${IMAGE_TAG}"
+
+                            echo "Pushing Kubernetes manifest to GitHub..."
+
+                            git push \
+                              https://${GIT_USERNAME}:${GIT_TOKEN}@${GIT_REPO} \
+                              HEAD:main
+
+                        fi
+                    '''
+                }
+            }
+        }
+    }
+
+
+    post {
+
+        success {
+
+            echo "======================================"
+            echo "CI PIPELINE SUCCESSFUL"
+            echo "======================================"
+
+            echo "Docker Image:"
+            echo "${DOCKERHUB_REPO}:${IMAGE_TAG}"
+
+            echo "Kubernetes Manifest:"
+            echo "${K8S_DEPLOYMENT_FILE}"
+
+            echo "Manifest pushed to GitHub main branch."
+        }
+
+
+        failure {
+
+            echo "======================================"
+            echo "CI PIPELINE FAILED"
+            echo "======================================"
+        }
+
+
+        always {
+
+            sh '''
+                docker logout || true
+            '''
+        }
+    }
+}

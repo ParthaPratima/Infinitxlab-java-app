@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+
+metadata:
+  name: infinitx-config
+  namespace: infinitx
+
+data:
+  DB_HOST: "172.31.27.82"
+  DB_PORT: "3306"
+  DB_NAME: "infinitx"

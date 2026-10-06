@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: infinitx-app
+  namespace: infinitx
+
+spec:
+  replicas: 2
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  selector:
+    matchLabels:
+      app: infinitx-app
+
+  template:
+    metadata:
+      labels:
+        app: infinitx-app
+
+    spec:
+
+      imagePullSecrets:
+        - name: dockerhub-secret
+
+      containers:
+        - name: infinitx-app
+
+          image: soumyajitrout/infinitxlab-java-app:3
+
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 8080
+              name: http
+
+          envFrom:
+            - configMapRef:
+                name: infinitx-config
+
+            - secretRef:
+                name: infinitx-secret
+
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3

@@ -1,0 +1,230 @@
+pipeline {
+
+    agent any
+
+    environment {
+        APP_NAME = 'infinitxlab-java-app'
+        DOCKERHUB_REPO = 'soumyajitrout/infinitxlab-java-app'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        K8S_DEPLOYMENT_FILE = 'k8s/deployment.yml'
+        GIT_REPO = 'github.com/Soumyajit-Rout/infinitxlab-java-app.git'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Check Commit') {
+            steps {
+                script {
+                    env.LAST_COMMIT_MSG = sh(
+                        script: 'git log -1 --pretty=%B',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Latest commit message: ${env.LAST_COMMIT_MSG}"
+                }
+            }
+        }
+
+        stage('Maven Test') {
+            when {
+                expression {
+                    return !env.LAST_COMMIT_MSG.contains('[skip ci]')
+                }
+            }
+            steps {
+                sh 'mvn clean test'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            when {
+                expression {
+                    return !env.LAST_COMMIT_MSG.contains('[skip ci]')
+                }
+            }
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        mvn org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \
+                          -Dsonar.projectKey=infinitx-lab
+                    '''
+                }
+            }
+        }
+
+        stage('Maven Package') {
+            when {
+                expression {
+                    return !env.LAST_COMMIT_MSG.contains('[skip ci]')
+                }
+            }
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+
+        stage('Verify WAR') {
+            when {
+                expression {
+                    return !env.LAST_COMMIT_MSG.contains('[skip ci]')
+                }
+            }
+            steps {
+                sh '''
+                    echo "Checking WAR file..."
+                    ls -lh target/
+                    test -f target/infinitx-lab.war
+                '''
+            }
+        }
+
+        stage('Docker Build') {
+            when {
+                expression {
+                    return !env.LAST_COMMIT_MSG.contains('[skip ci]')
+                }
+            }
+            steps {
+                sh '''
+                    docker build \
+                      -t ${DOCKERHUB_REPO}:${IMAGE_TAG} \
+                      .
+                '''
+            }
+        }
+
+        stage('Trivy Scan') {
+            when {
+                expression {
+                    return !env.LAST_COMMIT_MSG.contains('[skip ci]')
+                }
+            }
+            steps {
+                sh '''
+                    trivy image \
+                      --severity HIGH,CRITICAL \
+                      --exit-code 1 \
+                      --ignore-unfixed \
+                      ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                '''
+            }
+        }
+
+        stage('Docker Hub Login') {
+            when {
+                expression {
+                    return !env.LAST_COMMIT_MSG.contains('[skip ci]')
+                }
+            }
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_TOKEN'
+                    )
+                ]) {
+                    sh '''
+                        echo "$DOCKER_TOKEN" | \
+                        docker login \
+                          -u "$DOCKER_USERNAME" \
+                          --password-stdin
+                    '''
+                }
+            }
+        }
+
+        stage('Docker Push') {
+            when {
+                expression {
+                    return !env.LAST_COMMIT_MSG.contains('[skip ci]')
+                }
+            }
+            steps {
+                sh '''
+                    docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
+
+                    docker tag \
+                      ${DOCKERHUB_REPO}:${IMAGE_TAG} \
+                      ${DOCKERHUB_REPO}:latest
+
+                    docker push \
+                      ${DOCKERHUB_REPO}:latest
+                '''
+            }
+        }
+
+        stage('Update Kubernetes Manifest') {
+            when {
+                expression {
+                    return !env.LAST_COMMIT_MSG.contains('[skip ci]')
+                }
+            }
+            steps {
+                sh '''
+                    sed -i \
+                      "s#image: ${DOCKERHUB_REPO}:.*#image: ${DOCKERHUB_REPO}:${IMAGE_TAG}#" \
+                      ${K8S_DEPLOYMENT_FILE}
+
+                    grep "image:" \
+                      ${K8S_DEPLOYMENT_FILE}
+                '''
+            }
+        }
+
+        stage('Commit Kubernetes Manifest') {
+            when {
+                expression {
+                    return !env.LAST_COMMIT_MSG.contains('[skip ci]')
+                }
+            }
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'git-token',
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_TOKEN'
+                    )
+                ]) {
+                    sh '''
+                        git config user.name "Jenkins CI"
+                        git config user.email "jenkins@infinitxlab.local"
+
+                        git add ${K8S_DEPLOYMENT_FILE}
+
+                        if git diff --cached --quiet; then
+                            echo "No manifest changes."
+                        else
+                            git commit \
+                              -m "[skip ci] Update image to ${DOCKERHUB_REPO}:${IMAGE_TAG}"
+
+                            git push \
+                              https://${GIT_USERNAME}:${GIT_TOKEN}@${GIT_REPO} \
+                              HEAD:main
+                        fi
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker logout || true'
+        }
+
+        success {
+            echo "CI pipeline successful."
+        }
+
+        failure {
+            echo "CI pipeline failed."
+        }
+    }
+}
